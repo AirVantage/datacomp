@@ -4,10 +4,11 @@ import (
 	"compress/zlib"
 	"encoding/csv"
 	"fmt"
-	"github.com/jvermillard/datacomp/cbor"
 	"io"
 	"os"
 	"strconv"
+
+	"github.com/jvermillard/datacomp/cbor"
 )
 
 func main() {
@@ -18,9 +19,11 @@ func main() {
 
 	samples := make([]interface{}, 0)
 
-	baseTime := 0
+	baseTime := 0.0
 
 	var baseValue []float64
+
+	var factors []float64
 
 	for i := 0; ; i++ {
 		record, err := csvReader.Read()
@@ -45,17 +48,31 @@ func main() {
 				}
 			}
 			body["h"] = header
+			factors = make([]float64, len(record))
+			body["f"] = factors
 			continue
 		}
 
-		ts := 0
+		// fill factors, I know row 0 is TS (sampling at 100ms)
+		factors[0] = 0.01
+		factors[1] = 1
+		factors[2] = 1
+		factors[3] = 1
+		factors[4] = 1000000
+		factors[5] = 1000000
+		factors[6] = 1
+		factors[7] = 100
+
+		ts := 0.0
 		for j, v := range record {
 			if j == 0 {
-				ts, err = strconv.Atoi(v)
+				tsint, err := strconv.Atoi(v)
 				if err != nil {
 					panic(err)
 				}
-				samples = append(samples, ts-baseTime)
+				ts = float64(tsint) * factors[0]
+
+				appendCompactType(ts-baseTime, &samples)
 
 				baseTime = ts
 			} else {
@@ -63,15 +80,9 @@ func main() {
 				if err != nil {
 					panic(err)
 				}
-
+				val = val * factors[j]
 				delta := val - baseValue[j-1]
-				if delta == float64(int64(delta)) {
-					samples = append(samples, int64(delta))
-				} else if delta == float64(float32(delta)) {
-					samples = append(samples, float32(delta))
-				} else {
-					samples = append(samples, delta)
-				}
+				appendCompactType(delta, &samples)
 				baseValue[j-1] = val
 			}
 		}
@@ -87,5 +98,13 @@ func main() {
 	}
 
 	wz.Flush()
-
+}
+func appendCompactType(value float64, samples *[]interface{}) {
+	if value == float64(int64(value)) {
+		*samples = append(*samples, int64(value))
+	} else if value == float64(float32(value)) {
+		*samples = append(*samples, float32(value))
+	} else {
+		*samples = append(*samples, value)
+	}
 }
